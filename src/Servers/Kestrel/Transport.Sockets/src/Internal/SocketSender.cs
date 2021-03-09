@@ -11,75 +11,78 @@ using System.Runtime.InteropServices;
 
 namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets.Internal
 {
-    internal sealed class SocketSender : SocketSenderReceiverBase
+    internal sealed class SocketSender : SocketAwaitableEventArgs
     {
-        private List<ArraySegment<byte>>? _bufferList;
-
-        public SocketSender(Socket socket, PipeScheduler scheduler) : base(socket, scheduler)
+        public SocketSender(PipeScheduler scheduler) : base(scheduler)
         {
         }
 
-        public SocketAwaitableEventArgs SendAsync(in ReadOnlySequence<byte> buffers)
+        public SocketAwaitableEventArgs SendAsync(Socket socket, in ReadOnlySequence<byte> buffers)
         {
             if (buffers.IsSingleSegment)
             {
-                return SendAsync(buffers.First);
+                return SendAsync(socket, buffers.First);
             }
 
-            if (!_awaitableEventArgs.MemoryBuffer.Equals(Memory<byte>.Empty))
+            if (!MemoryBuffer.Equals(Memory<byte>.Empty))
             {
-                _awaitableEventArgs.SetBuffer(null, 0, 0);
+                SetBuffer(null, 0, 0);
             }
 
-            _awaitableEventArgs.BufferList = GetBufferList(buffers);
+            SetBufferList(buffers);
 
-            if (!_socket.SendAsync(_awaitableEventArgs))
+            if (!socket.SendAsync(this))
             {
-                _awaitableEventArgs.Complete();
+                Complete();
             }
 
-            return _awaitableEventArgs;
+            return this;
         }
 
-        private SocketAwaitableEventArgs SendAsync(ReadOnlyMemory<byte> memory)
+        public void Reset()
+        {
+            // TODO: Consider clearing the buffer and buffer list before we put it back into the pool
+            // it's a performance hit but it removes the confusion when looking at dumps to see this still
+            // holder onto the buffer when it's back in the pool
+        }
+
+        private SocketAwaitableEventArgs SendAsync(Socket socket, ReadOnlyMemory<byte> memory)
         {
             // The BufferList getter is much less expensive then the setter.
-            if (_awaitableEventArgs.BufferList != null)
+            if (BufferList != null)
             {
-                _awaitableEventArgs.BufferList = null;
+                BufferList = null;
             }
 
-            _awaitableEventArgs.SetBuffer(MemoryMarshal.AsMemory(memory));
+            SetBuffer(MemoryMarshal.AsMemory(memory));
 
-            if (!_socket.SendAsync(_awaitableEventArgs))
+            if (!socket.SendAsync(this))
             {
-                _awaitableEventArgs.Complete();
+                Complete();
             }
 
-            return _awaitableEventArgs;
+            return this;
         }
 
-        private List<ArraySegment<byte>> GetBufferList(in ReadOnlySequence<byte> buffer)
+        private void SetBufferList(in ReadOnlySequence<byte> buffer)
         {
             Debug.Assert(!buffer.IsEmpty);
             Debug.Assert(!buffer.IsSingleSegment);
 
-            if (_bufferList == null)
+            if (BufferList == null)
             {
-                _bufferList = new List<ArraySegment<byte>>();
+                BufferList = new List<ArraySegment<byte>>();
             }
             else
             {
                 // Buffers are pooled, so it's OK to root them until the next multi-buffer write.
-                _bufferList.Clear();
+                BufferList.Clear();
             }
 
             foreach (var b in buffer)
             {
-                _bufferList.Add(b.GetArray());
+                BufferList.Add(b.GetArray());
             }
-
-            return _bufferList;
         }
     }
 }

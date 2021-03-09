@@ -204,6 +204,13 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets
 
             // Dispose the memory pool
             _memoryPool.Dispose();
+
+            // Dispose any pooled senders
+            foreach (var setting in _settings)
+            {
+                setting.SocketSenderPool.Dispose();
+            }
+
             return default;
         }
 

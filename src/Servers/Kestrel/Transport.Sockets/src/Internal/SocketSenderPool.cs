@@ -1,14 +1,16 @@
+using System;
 using System.Collections.Concurrent;
 using System.IO.Pipelines;
 
 namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets.Internal
 {
-    internal class SocketSenderPool
+    internal class SocketSenderPool : IDisposable
     {
         private const int MaxQueueSize = 1024; // REVIEW: Is this good enough?
 
         private readonly ConcurrentQueue<SocketSender> _queue = new();
         private readonly PipeScheduler _scheduler;
+        private bool _disposed;
 
         public SocketSenderPool(PipeScheduler scheduler)
         {
@@ -26,7 +28,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets.Internal
 
         public void Return(SocketSender sender)
         {
-            if (_queue.Count > MaxQueueSize)
+            if (_disposed || _queue.Count > MaxQueueSize)
             {
                 sender.Dispose();
                 return;
@@ -36,5 +38,18 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets.Internal
 
             _queue.Enqueue(sender);
         }
+
+        public void Dispose()
+        {
+            if (!_disposed)
+            {
+                _disposed = true;
+                while (_queue.TryDequeue(out var sender))
+                {
+                    sender.Dispose();
+                }
+            }
+        }
+
     }
 }

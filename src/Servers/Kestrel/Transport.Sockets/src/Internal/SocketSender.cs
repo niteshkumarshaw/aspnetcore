@@ -69,20 +69,25 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets.Internal
             Debug.Assert(!buffer.IsEmpty);
             Debug.Assert(!buffer.IsSingleSegment);
 
-            if (BufferList == null)
+            var buffers = BufferList;
+
+            if (buffers == null)
             {
-                BufferList = new List<ArraySegment<byte>>();
+                buffers = new List<ArraySegment<byte>>();
             }
             else
             {
                 // Buffers are pooled, so it's OK to root them until the next multi-buffer write.
-                BufferList.Clear();
+                buffers.Clear();
             }
 
             foreach (var b in buffer)
             {
-                BufferList.Add(b.GetArray());
+                buffers.Add(b.GetArray());
             }
+
+            // The act of setting this list, sets the buffers in the internal buffer list
+            BufferList = buffers;
         }
     }
 }

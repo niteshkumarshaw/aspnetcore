@@ -13,6 +13,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets.Internal
 {
     internal sealed class SocketSender : SocketAwaitableEventArgs
     {
+        private List<ArraySegment<byte>>? _bufferList;
+
         public SocketSender(PipeScheduler scheduler) : base(scheduler)
         {
         }
@@ -22,11 +24,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets.Internal
             if (buffers.IsSingleSegment)
             {
                 return SendAsync(socket, buffers.First);
-            }
-
-            if (!MemoryBuffer.Equals(Memory<byte>.Empty))
-            {
-                SetBuffer(null, 0, 0);
             }
 
             SetBufferList(buffers);
@@ -41,19 +38,18 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets.Internal
 
         public void Reset()
         {
-            // TODO: Consider clearing the buffer and buffer list before we put it back into the pool
-            // it's a performance hit but it removes the confusion when looking at dumps to see this still
+            // We clear the buffer and buffer list before we put it back into the pool
+            // it's a small performance hit but it removes the confusion when looking at dumps to see this still
             // holder onto the buffer when it's back in the pool
+            BufferList = null;
+
+            SetBuffer(null, 0, 0);
+
+            _bufferList?.Clear();
         }
 
         private SocketAwaitableEventArgs SendAsync(Socket socket, ReadOnlyMemory<byte> memory)
         {
-            // The BufferList getter is much less expensive then the setter.
-            if (BufferList != null)
-            {
-                BufferList = null;
-            }
-
             SetBuffer(MemoryMarshal.AsMemory(memory));
 
             if (!socket.SendAsync(this))
@@ -69,25 +65,23 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets.Internal
             Debug.Assert(!buffer.IsEmpty);
             Debug.Assert(!buffer.IsSingleSegment);
 
-            var buffers = BufferList;
-
-            if (buffers == null)
+            if (_bufferList == null)
             {
-                buffers = new List<ArraySegment<byte>>();
+                _bufferList = new List<ArraySegment<byte>>();
             }
             else
             {
                 // Buffers are pooled, so it's OK to root them until the next multi-buffer write.
-                buffers.Clear();
+                _bufferList.Clear();
             }
 
             foreach (var b in buffer)
             {
-                buffers.Add(b.GetArray());
+                _bufferList.Add(b.GetArray());
             }
 
             // The act of setting this list, sets the buffers in the internal buffer list
-            BufferList = buffers;
+            BufferList = _bufferList;
         }
     }
 }
